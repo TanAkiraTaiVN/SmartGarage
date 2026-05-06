@@ -29,21 +29,31 @@ public class DashboardService : IDashboardService
         var totalVehiclesParked = await _context.ParkingTickets
             .CountAsync(t => t.Status == TicketStatus.Active);
 
-        var todayRevenue = await _context.Payments
+        var todayPayments = await _context.Payments
             .Where(p => p.Status == PaymentStatus.Completed && p.CompletedAt >= today)
-            .SumAsync(p => (decimal?)p.Amount) ?? 0;
+            .Select(p => p.Amount)
+            .ToListAsync();
+        var todayRevenue = todayPayments.Sum();
 
-        var monthlyRevenue = await _context.Payments
+        var monthlyPayments = await _context.Payments
             .Where(p => p.Status == PaymentStatus.Completed && p.CompletedAt >= monthStart)
-            .SumAsync(p => (decimal?)p.Amount) ?? 0;
+            .Select(p => p.Amount)
+            .ToListAsync();
+        var monthlyRevenue = monthlyPayments.Sum();
 
-        var yearlyRevenue = await _context.Payments
+        var yearlyPayments = await _context.Payments
             .Where(p => p.Status == PaymentStatus.Completed && p.CompletedAt >= yearStart)
-            .SumAsync(p => (decimal?)p.Amount) ?? 0;
+            .Select(p => p.Amount)
+            .ToListAsync();
+        var yearlyRevenue = yearlyPayments.Sum();
 
         var last7Days = today.AddDays(-6);
-        var revenueByDays = await _context.Payments
+        var recentPayments = await _context.Payments
             .Where(p => p.Status == PaymentStatus.Completed && p.CompletedAt >= last7Days)
+            .Select(p => new { p.CompletedAt, p.Amount })
+            .ToListAsync();
+
+        var revenueByDays = recentPayments
             .GroupBy(p => p.CompletedAt!.Value.Date)
             .Select(g => new RevenueByDay
             {
@@ -52,19 +62,23 @@ public class DashboardService : IDashboardService
                 TotalTickets = g.Count()
             })
             .OrderBy(r => r.Date)
-            .ToListAsync();
+            .ToList();
 
-        var vehicleTypeStats = await _context.ParkingTickets
+        var ticketsThisMonth = await _context.ParkingTickets
             .Include(t => t.Vehicle)
             .Where(t => t.CreatedAt >= monthStart)
-            .GroupBy(t => t.Vehicle.VehicleType)
+            .Select(t => new { t.Vehicle.VehicleType, t.TotalAmount })
+            .ToListAsync();
+
+        var vehicleTypeStats = ticketsThisMonth
+            .GroupBy(t => t.VehicleType)
             .Select(g => new VehicleTypeStats
             {
                 VehicleType = g.Key.ToString(),
                 Count = g.Count(),
                 Revenue = g.Sum(t => t.TotalAmount ?? 0)
             })
-            .ToListAsync();
+            .ToList();
 
         return new DashboardDto
         {
@@ -82,9 +96,13 @@ public class DashboardService : IDashboardService
 
     public async Task<List<RevenueByDay>> GetRevenueByDateRangeAsync(DateTime from, DateTime to)
     {
-        return await _context.Payments
+        var payments = await _context.Payments
             .Where(p => p.Status == PaymentStatus.Completed
                 && p.CompletedAt >= from && p.CompletedAt <= to)
+            .Select(p => new { p.CompletedAt, p.Amount })
+            .ToListAsync();
+
+        return payments
             .GroupBy(p => p.CompletedAt!.Value.Date)
             .Select(g => new RevenueByDay
             {
@@ -93,6 +111,6 @@ public class DashboardService : IDashboardService
                 TotalTickets = g.Count()
             })
             .OrderBy(r => r.Date)
-            .ToListAsync();
+            .ToList();
     }
 }
